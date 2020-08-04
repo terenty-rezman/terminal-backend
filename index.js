@@ -1,17 +1,12 @@
-const express =  require('express');
-const expressWs =  require('express-ws');
-const pty =  require('node-pty');
-const WebSocket = require('ws');
-const http =  require('http');
+const express = require('express');
+const expressWs = require('express-ws');
+const pty = require('node-pty');
 
 const host = 'localhost';
 const port = 3000;
 
 const app = express();
-// const ws_app = expressWs(app);
-
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const ws_app = expressWs(app);
 
 function create_terminal() {
     const env = Object.assign({}, process.env);
@@ -29,8 +24,7 @@ function create_terminal() {
     return terminal;
 }
 
-// app.ws('/terminal', (ws, req) => {
-wss.on('connection', ws => {
+app.ws('/terminal', (ws, req) => {
     console.log('client connected');
 
     const terminal = create_terminal();
@@ -39,7 +33,7 @@ wss.on('connection', ws => {
         try {
             ws.send(data);
         }
-        catch(ex) {
+        catch (ex) {
             console.log(ex);
         }
     });
@@ -51,9 +45,14 @@ wss.on('connection', ws => {
     ws.on('close', () => {
         console.log('client disconnected');
         try {
-            terminal.kill();
+            terminal.removeAllListeners('data');
+            terminal.onExit(() => {
+                console.log('terminal killed');
+                terminal.kill();
+            })
+            terminal.end();
         }
-        catch(ex) {
+        catch (ex) {
             console.log(ex);
         }
     });
@@ -64,11 +63,11 @@ app.use(function (err, req, res, next) {
     res.status(500).send('Something broke!');
 });
 
-server.listen(
+const server = app.listen(
     port,
     host,
     () =>
-      console.log(
-        `listening on ${server.address().address} ${server.address().port}...`,
-      ),
-  );
+        console.log(
+            `listening on ${server.address().address} ${server.address().port}...`,
+        ),
+);
