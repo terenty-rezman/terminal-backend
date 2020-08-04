@@ -24,6 +24,20 @@ function create_terminal() {
     return terminal;
 }
 
+function parse_msg(raw_msg, terminal) {
+    const msg = JSON.parse(raw_msg);
+
+    switch (msg.type) {
+        case 'm':
+            terminal.write(msg.data);
+            break;
+        case 'f':
+            let rows = msg.rows < 10 ? 10 : msg.rows; // crash when 0 :)
+            let cols = msg.cols < 20 ? 20 : msg.cols; // crash when 0 :)
+            terminal.resize(cols, rows);
+    }
+}
+
 app.ws('/terminal', (ws, req) => {
     console.log('client connected');
 
@@ -38,14 +52,25 @@ app.ws('/terminal', (ws, req) => {
         }
     });
 
-    ws.on('message', msg => {
-        terminal.write(msg);
+    const exit = terminal.onExit(() => {
+        ws.close();
+    })
+
+    ws.on('message', raw_msg => {
+        try {
+            parse_msg(raw_msg, terminal);
+        }
+        catch (ex) {
+            console.log(ex);
+        }
     });
 
     ws.on('close', () => {
         console.log('client disconnected');
         try {
             terminal.removeAllListeners('data');
+            exit.dispose();
+
             terminal.onExit(() => {
                 console.log('terminal killed');
                 terminal.kill();
