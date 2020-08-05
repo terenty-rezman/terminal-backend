@@ -1,12 +1,91 @@
 const express = require('express');
-const expressWs = require('express-ws');
 const pty = require('node-pty');
+const http = require('http');
+const WebSocket = require('ws');
+const e = require('express');
 
 const host = 'localhost';
 const port = 3000;
 
 const app = express();
-const ws_app = expressWs(app);
+
+const http_server = http.createServer(app);
+
+const ws_server = new WebSocket.Server({
+    noServer: true,
+    maxPayload: 2 * 1024 // restrict clients max msg size
+});
+
+const ws_route = '/terminal/';
+
+const ws_allow_origins = [
+    'http://localhost',
+    'http://127.0.0.1'
+];
+
+// i think its sliding window rate limit
+function rate_limiter(req_limit, time_window) {
+    const check_time = 500;
+    let checker = null;
+    let count = 0;
+    let exceeded = false;
+
+    // recalc req limit with check_time in mind
+    req_limit = req_limit / time_window * check_time;
+
+    return function () {
+        const on_timeout = _ => {
+            count -= req_limit;
+            count = Math.max(count, 0);
+            checker = null;
+
+            if (count > 0)
+                checker = setTimeout(on_timeout, check_time);
+        };
+
+        if (!checker)
+            checker = setTimeout(on_timeout, check_time);
+
+        ++count;
+
+        if (count > req_limit)
+            exceeded = true;
+
+        return exceeded;
+    };
+}
+
+// string message buffering
+function buffered(socket, timeout) {
+    let data = '';
+    let sender = null;
+
+    return (chunk) => {
+        data += chunk;
+
+        if (!sender)
+            sender = setTimeout(() => {
+                const msg = { type: 'm', data };
+
+                try {
+                    socket.send(JSON.stringify(msg));
+                }
+                catch(ex) {
+                    console.log(ex);
+                }
+
+                data = '';
+                sender = null;
+            }, timeout);
+    };
+}
+
+function verify_client(req) {
+    if (req.url == ws_route && ws_allow_origins.includes(req.headers.origin))
+        return true;
+
+    return false;
+}
 
 function create_terminal() {
     const env = Object.assign({}, process.env);
@@ -32,20 +111,36 @@ function parse_msg(raw_msg, terminal) {
             terminal.write(msg.data);
             break;
         case 'f':
+            // limit minimum size for terminal
             let rows = msg.rows < 10 ? 10 : msg.rows; // crash when 0 :)
             let cols = msg.cols < 20 ? 20 : msg.cols; // crash when 0 :)
             terminal.resize(cols, rows);
     }
 }
 
-app.ws('/terminal', (ws, req) => {
+http_server.on('upgrade', function upgrade(request, socket, head) {
+    if (!verify_client(request)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+
+    ws_server.handleUpgrade(request, socket, head, function done(ws) {
+        ws_server.emit('connection', ws, request);
+    });
+});
+
+ws_server.on('connection', (ws, req) => {
     console.log('client connected');
 
     const terminal = create_terminal();
+    const rate_limit = rate_limiter(38, 1000);
+
+    const send = buffered(ws, 10);
 
     terminal.on('data', data => {
         try {
-            ws.send(data);
+            send(data);
         }
         catch (ex) {
             console.log(ex);
@@ -57,12 +152,24 @@ app.ws('/terminal', (ws, req) => {
     })
 
     ws.on('message', raw_msg => {
+        const exceeded = rate_limit();
+
+        if (exceeded) {
+            console.log(ws._socket.remoteAddress, 'Rate limit exceeded');
+            ws.close();
+            return;
+        }
+
         try {
             parse_msg(raw_msg, terminal);
         }
         catch (ex) {
             console.log(ex);
         }
+    });
+
+    ws.on('error', error => {
+        console.log(ws._socket.remoteAddress, error.message);
     });
 
     ws.on('close', () => {
@@ -73,26 +180,42 @@ app.ws('/terminal', (ws, req) => {
 
             terminal.onExit(() => {
                 console.log('terminal killed');
+                // calling kill() under heavy load outside onExit leads to crash on win
                 terminal.kill();
             })
+
+            // closes data flow to system ( calling kill() instead crashes on win under heave load)
             terminal.end();
         }
         catch (ex) {
             console.log(ex);
         }
     });
-})
+});
+
+ws_server.on('error', error => {
+    console.log(error);
+});
 
 app.use(function (err, req, res, next) {
     console.error(err.stack);
     res.status(500).send('Something broke!');
 });
 
-const server = app.listen(
+http_server.listen(
     port,
     host,
     () =>
         console.log(
-            `listening on ${server.address().address} ${server.address().port}...`,
+            `listening on ${http_server.address().address} ${http_server.address().port}...`,
         ),
 );
+
+const domain = require('domain');
+const d = domain.create();
+const fs = require('fs');
+
+process.on('uncaughtException', function(err) {
+  fs.writeFileSync('uncaught.log', err.stack);
+  console.error(err);
+});
