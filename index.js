@@ -91,7 +91,7 @@ function create_terminal() {
     const env = Object.assign({}, process.env);
     env['COLORTERM'] = 'truecolor';
 
-    const terminal = pty.spawn('cmd.exe', [], {
+    const terminal = pty.spawn('powershell.exe', [], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
@@ -112,7 +112,7 @@ function parse_msg(raw_msg, terminal) {
             break;
         case 'f':
             // limit minimum size for terminal
-            let rows = msg.rows < 10 ? 10 : msg.rows; // crash when 0 :)
+            let rows = msg.rows < 20 ? 20 : msg.rows; // crash when 0 :)
             let cols = msg.cols < 20 ? 20 : msg.cols; // crash when 0 :)
             terminal.resize(cols, rows);
     }
@@ -134,8 +134,9 @@ ws_server.on('connection', (ws, req) => {
     console.log('client connected');
 
     const terminal = create_terminal();
-    const rate_limit = rate_limiter(38, 1000);
+    let terminal_exited = false;
 
+    const rate_limit = rate_limiter(38, 1000);
     const send = buffered(ws, 10);
 
     terminal.on('data', data => {
@@ -148,6 +149,7 @@ ws_server.on('connection', (ws, req) => {
     });
 
     const exit = terminal.onExit(() => {
+        terminal_exited = true;
         ws.close();
     })
 
@@ -178,11 +180,12 @@ ws_server.on('connection', (ws, req) => {
             terminal.removeAllListeners('data');
             exit.dispose();
 
-            terminal.onExit(() => {
-                console.log('terminal killed');
-                // calling kill() under heavy load outside onExit leads to crash on win
-                terminal.kill();
-            })
+            if(!terminal_exited)
+                terminal.onExit(() => {
+                    console.log('terminal killed');
+                    // calling kill() under heavy load outside onExit leads to crash on win
+                    terminal.kill();
+                })
 
             // closes data flow to system ( calling kill() instead crashes on win under heave load)
             terminal.end();
@@ -211,8 +214,6 @@ http_server.listen(
         ),
 );
 
-const domain = require('domain');
-const d = domain.create();
 const fs = require('fs');
 
 process.on('uncaughtException', function(err) {
