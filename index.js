@@ -70,7 +70,7 @@ function buffered(socket, timeout) {
                 try {
                     socket.send(JSON.stringify(msg));
                 }
-                catch(ex) {
+                catch (ex) {
                     console.log(ex);
                 }
 
@@ -91,7 +91,7 @@ function create_terminal() {
     const env = Object.assign({}, process.env);
     env['COLORTERM'] = 'truecolor';
 
-    const terminal = pty.spawn('powershell.exe', [], {
+    const terminal = pty.spawn('cmd.exe', [], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
@@ -112,9 +112,10 @@ function parse_msg(raw_msg, terminal) {
             break;
         case 'f':
             // limit minimum size for terminal
-            let rows = msg.rows < 20 ? 20 : msg.rows; // crash when 0 :)
-            let cols = msg.cols < 20 ? 20 : msg.cols; // crash when 0 :)
+            let rows = Math.max(msg.rows, 1); // crash when 0 :)
+            let cols = Math.max(msg.cols, 1); // crash when 0 :)
             terminal.resize(cols, rows);
+            break;
     }
 }
 
@@ -131,13 +132,20 @@ http_server.on('upgrade', function upgrade(request, socket, head) {
 });
 
 ws_server.on('connection', (ws, req) => {
-    console.log('client connected');
-
-    const terminal = create_terminal();
     let terminal_exited = false;
-
     const rate_limit = rate_limiter(38, 1000);
     const send = buffered(ws, 10);
+
+    console.log('client connected');
+
+    try {
+        var terminal = create_terminal();
+    }
+    catch (e) {
+        console.error(e.stack);
+        ws.close();
+        return;
+    }
 
     terminal.on('data', data => {
         try {
@@ -180,7 +188,7 @@ ws_server.on('connection', (ws, req) => {
             terminal.removeAllListeners('data');
             exit.dispose();
 
-            if(!terminal_exited)
+            if (!terminal_exited)
                 terminal.onExit(() => {
                     console.log('terminal killed');
                     // calling kill() under heavy load outside onExit leads to crash on win
@@ -216,7 +224,7 @@ http_server.listen(
 
 const fs = require('fs');
 
-process.on('uncaughtException', function(err) {
-  fs.writeFileSync('uncaught.log', err.stack);
-  console.error(err);
+process.on('uncaughtException', function (err) {
+    fs.appendFileSync('uncaught.log', "\n" + err.stack);
+    console.error(err);
 });
