@@ -91,7 +91,7 @@ function create_terminal() {
     const env = Object.assign({}, process.env);
     env['COLORTERM'] = 'truecolor';
 
-    const terminal = pty.spawn('cmd.exe', [], {
+    const terminal = pty.spawn('bash', [], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
