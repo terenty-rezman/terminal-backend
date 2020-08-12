@@ -4,7 +4,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const e = require('express');
 
-const host = 'localhost';
+const host = '0.0.0.0';
 const port = 3000;
 
 const app = express();
@@ -91,7 +91,7 @@ function create_terminal() {
     const env = Object.assign({}, process.env);
     env['COLORTERM'] = 'truecolor';
 
-    const terminal = pty.spawn('bash', [], {
+    const terminal = pty.spawn('eacho', ["hello"], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
