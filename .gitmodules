@@ -1,0 +1,3 @@
+[submodule "terminal-frontend"]
+	path = terminal-frontend
+	url = https://github.com/terenty-rezman/terminal-frontend.git

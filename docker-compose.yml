@@ -1,0 +1,14 @@
+version: "3"
+
+services:
+    terminal-frontend:
+        build: ./terminal-frontend
+        depends_on: 
+            - terminal-backend
+        volumes:
+            - ./terminal-backend/.nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+        ports:
+            - "80:80"
+        
+    terminal-backend:
+        build: .
