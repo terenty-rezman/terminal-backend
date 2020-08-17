@@ -20,7 +20,8 @@ const ws_route = '/terminal/';
 
 const ws_allow_origins = [
     'http://localhost',
-    'http://127.0.0.1'
+    'http://127.0.0.1',
+    'http://dockers.gcp.vpn'
 ];
 
 // i think its sliding window rate limit
@@ -91,7 +92,7 @@ function create_terminal() {
     const env = Object.assign({}, process.env);
     env['COLORTERM'] = 'truecolor';
 
-    const terminal = pty.spawn('eacho', ["hello"], {
+    const terminal = pty.spawn('bash', [], {
         name: 'xterm-256color',
         cols: 80,
         rows: 24,
